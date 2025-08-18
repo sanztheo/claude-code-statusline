@@ -34,6 +34,9 @@ In this case the statusline is a ruby script (so you'll need to have **ruby inst
 
 ## Display Modes
 
+> ![INFO]
+> You can edit the colors in the script to suit your tastes!
+
 Configure the visual style with `CLAUDE_STATUS_DISPLAY_MODE`:
 
 ### `colors` (default)
