@@ -5,7 +5,7 @@ require 'json'
 require 'date'
 require 'set'
 
-# DEBUG with 
+# DEBUG with
 # echo '{"workspace": {"current_dir": "/Users/gdehan/.claude/utils/local-tts"}, "model": {"display_name": "Claude 4.1 Opus"}, "session_id": "test"}' | env CLAUDE_STATUS_DISPLAY_MODE=text CLAUDE_STATUS_PLAN=pro CLAUDE_STATUS_INFO_MODE=text ruby ./statusline.rb
 
 # Claude Code Status Line - Clean, minimal, and precise
@@ -19,14 +19,14 @@ class ClaudeStatusLine
   # Configuration
   DEFAULT_DISPLAY_MODE = :colors
   DEFAULT_INFO_MODE = :none
-  
-  # Constants  
+
+  # Constants
   SESSION_DURATION_HOURS = 5
 
   # Emoji mappings for info mode
   EMOJIS = {
     directory: "📁",
-    git: "🔀", 
+    git: "🔀",
     model: "🦾",
     tokens: "📓",
     messages: "✏️",
@@ -36,10 +36,10 @@ class ClaudeStatusLine
   # Plan limits mapping (from Claude Monitor's plans.py)
   PLAN_LIMITS = {
     'pro' => { tokens: 19_000, messages: 250 },         # Pro plan
-    'max5' => { tokens: 88_000, messages: 1_000 },      # Max5 plan  
+    'max5' => { tokens: 88_000, messages: 1_000 },      # Max5 plan
     'max20' => { tokens: 220_000, messages: 2_000 },    # Max20 plan
     'custom' => { tokens: 44_000, messages: 250 },      # Custom plan
-    
+
     # Aliases and variations
     'max' => { tokens: 88_000, messages: 1_000 },       # Alias for max5
   }.freeze
@@ -48,7 +48,7 @@ class ClaudeStatusLine
     # Check environment variables first (multiple options for flexibility)
     plan_from_env = ENV['CLAUDE_STATUS_PLAN'] || ENV['CLAUDE_PLAN'] || ENV['CLAUDE_CODE_PLAN']
     return plan_from_env if plan_from_env && PLAN_LIMITS.key?(plan_from_env)
-    
+
     # Check settings.json
     settings_file = File.expand_path('~/.claude/settings.json')
     if File.exist?(settings_file)
@@ -60,7 +60,7 @@ class ClaudeStatusLine
         # Continue to fallback
       end
     end
-    
+
     'max' # Default to max plan
   end
 
@@ -114,7 +114,7 @@ class ClaudeStatusLine
     @display_mode = (ENV['CLAUDE_STATUS_DISPLAY_MODE']&.to_sym || DEFAULT_DISPLAY_MODE)
     @info_mode = (ENV['CLAUDE_STATUS_INFO_MODE']&.to_sym || DEFAULT_INFO_MODE)
     @colors = COLOR_SCHEMES[@display_mode] || COLOR_SCHEMES[DEFAULT_DISPLAY_MODE]
-    
+
     # Auto-detect plan and set limits
     @plan = self.class.detect_plan
     @limits = self.class.get_limits(@plan)
@@ -197,7 +197,7 @@ class ClaudeStatusLine
 
   def format_with_info(text, type)
     return colorize(text, type) unless text
-    
+
     case @info_mode
     when :emoji
       emoji = EMOJIS[type]
@@ -216,7 +216,7 @@ class ClaudeStatusLine
 
   def format_with_info_and_padding(text, type)
     return colorize(" #{text} ", type) unless text
-    
+
     case @info_mode
     when :emoji
       emoji = EMOJIS[type]
@@ -245,7 +245,7 @@ class ClaudeStatusLine
   def git_info_colored_with_info
     info = git_info
     return nil unless info
-    
+
     color = info.match?(/[?+!↑↓]/) ? :git_dirty : :git_clean
 
     case @info_mode
@@ -268,11 +268,11 @@ class ClaudeStatusLine
 
   def git_info
     return nil unless @current_dir && Dir.exist?(File.join(@current_dir, '.git'))
-    
+
     Dir.chdir(@current_dir) do
       branch = `git rev-parse --abbrev-ref HEAD 2>/dev/null`.strip
       return nil if branch.empty?
-      
+
       indicators = build_git_indicators
       " #{branch}#{indicators}"
     end
@@ -284,18 +284,18 @@ class ClaudeStatusLine
     status = `git status --porcelain 2>/dev/null`.strip
     branch = `git rev-parse --abbrev-ref HEAD 2>/dev/null`.strip
     ahead_behind = `git rev-list --left-right --count origin/#{branch}...#{branch} 2>/dev/null`.strip
-    
+
     indicators = ''
     indicators += '?' if status.match?(/^\?\?/)
     indicators += '+' if status.match?(/^[AM]/)
     indicators += '!' if status.match?(/^[MD]/)
-    
+
     if ahead_behind.match(/^(\d+)\s+(\d+)$/)
       behind, ahead = ahead_behind.split.map(&:to_i)
       indicators += "↑#{ahead}" if ahead > 0
       indicators += "↓#{behind}" if behind > 0
     end
-    
+
     indicators
   end
 
@@ -327,10 +327,10 @@ class ClaudeStatusLine
 
   def parse_jsonl_file(file, cutoff_time, processed_hashes)
     entries = []
-    
+
     File.foreach(file) do |line|
       next if line.strip.empty?
-      
+
       begin
         data = JSON.parse(line)
         entry = process_jsonl_entry(data, cutoff_time, processed_hashes)
@@ -339,7 +339,7 @@ class ClaudeStatusLine
         next
       end
     end
-    
+
     entries
   end
 
@@ -378,12 +378,12 @@ class ClaudeStatusLine
 
   def extract_tokens(data)
     tokens = { input_tokens: 0, output_tokens: 0, cache_creation_tokens: 0, cache_read_tokens: 0, total_tokens: 0 }
-    
+
     sources = token_sources(data)
-    
+
     sources.each do |source|
       next unless source.is_a?(Hash)
-      
+
       input = extract_token_field(source, %w[input_tokens inputTokens prompt_tokens])
       output = extract_token_field(source, %w[output_tokens outputTokens completion_tokens])
       cache_creation = extract_token_field(source, %w[cache_creation_tokens cache_creation_input_tokens cacheCreationInputTokens])
@@ -395,12 +395,12 @@ class ClaudeStatusLine
           output_tokens: output,
           cache_creation_tokens: cache_creation,
           cache_read_tokens: cache_read,
-          total_tokens: input + output + cache_creation + cache_read
+          total_tokens: input + output
         })
         break
       end
     end
-    
+
     tokens
   end
 
@@ -415,7 +415,7 @@ class ClaudeStatusLine
       sources << data['usage'] if data['usage'].is_a?(Hash)
       sources << data.dig('message', 'usage') if data.dig('message', 'usage').is_a?(Hash)
     end
-    
+
     sources << data
     sources.compact
   end
@@ -430,28 +430,28 @@ class ClaudeStatusLine
 
   def create_session_blocks(entries)
     return [] if entries.empty?
-    
+
     blocks = []
     current_block = nil
-    
+
     entries.each do |timestamp, tokens|
       if new_block_needed?(current_block, timestamp)
         blocks << current_block if current_block
         current_block = new_session_block(timestamp)
       end
-      
+
       add_to_block(current_block, timestamp, tokens)
     end
-    
+
     blocks << current_block if current_block
     blocks
   end
 
   def new_block_needed?(current_block, timestamp)
     return true unless current_block
-    
+
     timestamp >= current_block[:end_time] ||
-      (current_block[:last_timestamp] && 
+      (current_block[:last_timestamp] &&
        (timestamp - current_block[:last_timestamp]) >= SESSION_DURATION_HOURS * 3600)
   end
 
@@ -469,7 +469,7 @@ class ClaudeStatusLine
 
   def add_to_block(block, timestamp, tokens)
     return unless timestamp >= block[:start_time] && timestamp < block[:end_time]
-    
+
     block[:total_tokens] += tokens
     block[:message_count] += 1
     block[:last_timestamp] = timestamp
@@ -482,10 +482,10 @@ class ClaudeStatusLine
 
   def find_active_block(blocks)
     current_time = Time.now
-    
+
     # Mark active blocks
     blocks.each { |block| block[:is_active] = block[:end_time] > current_time }
-    
+
     # Return first active block (Claude Monitor logic)
     blocks.find { |block| block[:is_active] } ||
       blocks.max_by { |block| block[:last_timestamp] || block[:first_timestamp] }
@@ -505,7 +505,7 @@ class ClaudeStatusLine
   end
 
   def format_count(current, limit)
-    current_display = current >= 1000 ? "#{(current / 1000.0).round(1)}k" : current.to_s
+    current_display = current >= 10000 ? "#{(current / 1000.0).round(1)}k" : current.to_s
     limit_display = limit >= 1000 ? "#{limit / 1000}k" : limit.to_s
     "#{current_display}/#{limit_display}"
   end
@@ -513,7 +513,7 @@ class ClaudeStatusLine
   def default_usage
     {
       tokens: "0/88k",
-      messages: "0/1000", 
+      messages: "0/1000",
       reset_time: "5h0m"
     }
   end
