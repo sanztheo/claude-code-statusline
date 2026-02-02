@@ -69,6 +69,14 @@ class ClaudeStatusLine
     PLAN_LIMITS[plan] || PLAN_LIMITS['max']
   end
 
+  # Progress bar colors based on percentage
+  PROGRESS_COLORS = {
+    green: "\033[32m",
+    yellow: "\033[33m",
+    red: "\033[31m",
+    bright_red: "\033[1;31m"
+  }.freeze
+
   # Color schemes
   COLOR_SCHEMES = {
     colors: {
@@ -115,6 +123,11 @@ class ClaudeStatusLine
     @info_mode = (ENV['CLAUDE_STATUS_INFO_MODE']&.to_sym || DEFAULT_INFO_MODE)
     @colors = COLOR_SCHEMES[@display_mode] || COLOR_SCHEMES[DEFAULT_DISPLAY_MODE]
 
+    # Session stats
+    @lines_added = @input_data.dig('cost', 'total_lines_added') || 0
+    @lines_removed = @input_data.dig('cost', 'total_lines_removed') || 0
+    @duration_ms = @input_data.dig('cost', 'total_duration_ms') || 0
+
     # Auto-detect plan and set limits
     @plan = self.class.detect_plan
     @limits = self.class.get_limits(@plan)
@@ -122,7 +135,16 @@ class ClaudeStatusLine
 
   def generate
     parts = build_status_parts
+
+    # Ajouter les barres d'usage sur la même ligne
+    usage_bar_parts = build_usage_bars_inline
+    parts.concat(usage_bar_parts) if usage_bar_parts
+
     join_parts(parts)
+  end
+
+  def usage_bars
+    nil # Plus utilisé, tout est sur une ligne
   end
 
   private
@@ -133,16 +155,77 @@ class ClaudeStatusLine
         format_with_info(" #{@dir_name} ", :directory),
         git_info_colored_with_info,
         format_with_info(" #{@model_name} ", :model),
-        *usage_parts_with_padding_and_info
+        format_session_duration,
+        format_lines_changed,
+        format_context_bar,
+        format_with_info(" #{calculate_usage[:reset_time]} ", :time)
       ].compact
     else
       [
         format_with_info("#{@dir_name}/", :directory),
         git_info_colored_with_info,
         format_with_info(@model_name, :model),
-        *usage_parts_with_info
+        format_session_duration,
+        format_lines_changed,
+        format_context_bar
       ].compact
     end
+  end
+
+  def format_context_bar
+    context_pct = calculate_context_percentage
+    return nil if context_pct <= 0
+
+    bar = create_progress_bar_compact(context_pct, 8)
+    color = color_for_percentage(context_pct)
+    "#{@colors[:gray]}ctx #{bar} #{color}#{context_pct}%#{@colors[:reset]}"
+  end
+
+  def calculate_context_percentage
+    transcript_path = @input_data['transcript_path']
+    return 0 unless transcript_path && File.exist?(transcript_path)
+
+    max_tokens = 200_000
+    tokens = 0
+
+    File.foreach(transcript_path) do |line|
+      next if line.strip.empty?
+      begin
+        data = JSON.parse(line)
+        next if data['isSidechain'] == true
+        next if data['isApiErrorMessage'] == true
+        usage = data.dig('message', 'usage')
+        next unless usage
+
+        tokens = (usage['input_tokens'] || 0) +
+                 (usage['cache_read_input_tokens'] || 0) +
+                 (usage['cache_creation_input_tokens'] || 0)
+      rescue JSON::ParserError
+        next
+      end
+    end
+
+    ((tokens.to_f / max_tokens) * 100).round
+  rescue StandardError
+    0
+  end
+
+  def format_session_duration
+    return nil if @duration_ms <= 0
+    total_seconds = @duration_ms / 1000
+    hours = total_seconds / 3600
+    minutes = (total_seconds % 3600) / 60
+
+    duration_str = hours > 0 ? "#{hours}h#{minutes}m" : "#{minutes}m"
+    "#{@colors[:gray]}#{duration_str}#{@colors[:reset]}"
+  end
+
+  def format_lines_changed
+    return nil if @lines_added == 0 && @lines_removed == 0
+    parts = []
+    parts << "#{PROGRESS_COLORS[:green]}+#{@lines_added}#{@colors[:reset]}" if @lines_added > 0
+    parts << "#{PROGRESS_COLORS[:red]}-#{@lines_removed}#{@colors[:reset]}" if @lines_removed > 0
+    parts.join(' ')
   end
 
   def usage_parts
@@ -232,11 +315,11 @@ class ClaudeStatusLine
   def get_text_suffix(type)
     case type
     when :tokens
-      " tokens"
+      ""  # Raccourci - pas de suffix
     when :messages
-      " messages"
+      ""  # Raccourci - pas de suffix
     when :time
-      " before reset"
+      ""  # Raccourci - pas de suffix
     else
       ""
     end
@@ -497,11 +580,22 @@ class ClaudeStatusLine
     hours = seconds_until_reset / 3600
     minutes = (seconds_until_reset % 3600) / 60
 
+    token_pct = ((block[:total_tokens].to_f / @limits[:tokens]) * 100).round
+    msg_pct = ((block[:message_count].to_f / @limits[:messages]) * 100).round
+
     {
-      tokens: format_count(block[:total_tokens], @limits[:tokens]),
-      messages: "#{block[:message_count]}/#{@limits[:messages]}".strip,
+      tokens: format_with_bar("tokens", block[:total_tokens], @limits[:tokens], token_pct),
+      messages: format_with_bar("messages", block[:message_count], @limits[:messages], msg_pct),
       reset_time: "#{hours}h#{minutes}m"
     }
+  end
+
+  def format_with_bar(label, current, limit, pct)
+    current_display = current >= 10000 ? "#{(current / 1000.0).round(1)}k" : current.to_s
+    limit_display = limit >= 1000 ? "#{limit / 1000}k" : limit.to_s
+    bar = create_progress_bar_compact(pct, 8)
+    color = color_for_percentage(pct)
+    "#{label} #{bar} #{color}#{pct}%#{@colors[:reset]}"
   end
 
   def format_count(current, limit)
@@ -517,7 +611,118 @@ class ClaudeStatusLine
       reset_time: "5h0m"
     }
   end
+
+  # Progress bar helpers
+  def color_for_percentage(pct)
+    return PROGRESS_COLORS[:bright_red] if pct >= 90
+    return PROGRESS_COLORS[:red] if pct >= 75
+    return PROGRESS_COLORS[:yellow] if pct >= 50
+    PROGRESS_COLORS[:green]
+  end
+
+  def create_progress_bar(percentage, width = 10)
+    filled = (percentage.to_f / 100 * width).round
+    empty = width - filled
+    color = color_for_percentage(percentage)
+    # Utiliser des caractères plus fins et élégants
+    "#{@colors[:gray]}[#{color}#{'━' * filled}#{@colors[:gray]}#{'─' * empty}]#{@colors[:reset]}"
+  end
+
+  def fetch_api_usage
+    token = get_oauth_token
+    return nil unless token
+
+    require 'net/http'
+    require 'uri'
+
+    uri = URI('https://api.anthropic.com/api/oauth/usage')
+    http = Net::HTTP.new(uri.host, uri.port)
+    http.use_ssl = true
+    http.open_timeout = 2
+    http.read_timeout = 2
+
+    request = Net::HTTP::Get.new(uri)
+    request['Authorization'] = "Bearer #{token}"
+    request['anthropic-beta'] = 'oauth-2025-04-20'
+
+    response = http.request(request)
+    return nil unless response.code == '200'
+
+    JSON.parse(response.body)
+  rescue StandardError
+    nil
+  end
+
+  def get_oauth_token
+    result = `security find-generic-password -s "Claude Code-credentials" -w 2>/dev/null`.strip
+    return nil if result.empty?
+
+    data = JSON.parse(result)
+    data.dig('claudeAiOauth', 'accessToken')
+  rescue StandardError
+    nil
+  end
+
+  def format_api_reset_time(reset_at_str)
+    return nil unless reset_at_str
+    reset_time = DateTime.parse(reset_at_str).to_time
+    diff_seconds = (reset_time - Time.now).to_i
+    return nil if diff_seconds <= 0
+
+    days = diff_seconds / 86400
+    hours = (diff_seconds % 86400) / 3600
+    minutes = (diff_seconds % 3600) / 60
+
+    if days > 0
+      "#{days}d#{hours}h"
+    elsif hours > 0
+      "#{hours}h#{minutes.to_s.rjust(2, '0')}m"
+    else
+      "#{minutes}m"
+    end
+  rescue StandardError
+    nil
+  end
+
+  def build_usage_bars_inline
+    api_data = fetch_api_usage
+    return nil unless api_data
+
+    five_hour_pct = (api_data.dig('five_hour', 'utilization') || 0).round
+    five_hour_reset = format_api_reset_time(api_data.dig('five_hour', 'resets_at'))
+    seven_day_pct = (api_data.dig('seven_day', 'utilization') || 0).round
+    seven_day_reset = format_api_reset_time(api_data.dig('seven_day', 'resets_at'))
+
+    five_bar = create_progress_bar_compact(five_hour_pct)
+    five_color = color_for_percentage(five_hour_pct)
+    seven_bar = create_progress_bar_compact(seven_day_pct)
+    seven_color = color_for_percentage(seven_day_pct)
+
+    # Format compact : label(temps) [barre] %
+    five_label = five_hour_reset ? "5h(#{five_hour_reset})" : "5h"
+    seven_label = seven_day_reset ? "7d(#{seven_day_reset})" : "7d"
+
+    five_part = "#{@colors[:gray]}#{five_label} #{five_bar} #{five_color}#{five_hour_pct}%#{@colors[:reset]}"
+    seven_part = "#{@colors[:gray]}#{seven_label} #{seven_bar} #{seven_color}#{seven_day_pct}%#{@colors[:reset]}"
+
+    [five_part, seven_part]
+  rescue StandardError
+    nil
+  end
+
+  def create_progress_bar_compact(percentage, width = 10)
+    filled = (percentage.to_f / 100 * width).round
+    empty = width - filled
+    color = color_for_percentage(percentage)
+    "#{@colors[:gray]}[#{color}#{'█' * filled}#{@colors[:gray]}#{'░' * empty}]#{@colors[:reset]}"
+  end
+
+  def build_usage_bars
+    # Deprecated - kept for compatibility
+    nil
+  end
 end
 
 # Execute
-puts ClaudeStatusLine.new.generate
+status = ClaudeStatusLine.new
+puts status.generate

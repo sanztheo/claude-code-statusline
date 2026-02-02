@@ -1,86 +1,197 @@
-# Claude Code Status Line
+# Claude Code Statusline
 
-A clean, customizable status line for Claude Code that displays your current folder, git status, model, but most of all: your Claude usage metrics (how many tokens and messages you have left and how long until your next reset).
+A beautiful, feature-rich statusline for [Claude Code](https://claude.ai/code) with real-time usage tracking, progress bars, and smart alerts.
 
-## What is the Status Line?
+![Claude Code Statusline Demo](docs/demo.png)
 
-The status line provides at-a-glance information about your Claude Code session directly in your terminal or IDE. It shows real-time usage tracking, workspace context, and git repository status to help you monitor your development workflow.
+## Quick Install
 
-## How to setup the status line
-
-You usually generate it when configuring Claude Code by using the `/statusline` command, but you can also reference a script from your `settings.json`.
-
-In this case the statusline is a ruby script (so you'll need to have **ruby installed**):
-
-```json
-{
-  "statusLine": {
-    "type": "command",
-    "command": "CLAUDE_STATUS_DISPLAY_MODE=minimal CLAUDE_STATUS_INFO_MODE=text CLAUDE_STATUS_PLAN=max5 ~/.claude/utils/claude_monitor_statusline/statusline.rb"
-  }
-}
+```bash
+curl -fsSL https://raw.githubusercontent.com/sanztheo/claude-code-statusline/main/install.sh | bash
 ```
 
-> [!WARNING]
-> Don't forget to make sure the script is executable (`chmod +x statusline.rb`)
+Or with wget:
+```bash
+wget -qO- https://raw.githubusercontent.com/sanztheo/claude-code-statusline/main/install.sh | bash
+```
+
+Then restart Claude Code!
 
 ## Features
 
-- **Workspace Context**: Current directory name and git branch status
-- **Git Status**: Branch name with change indicators (`?` untracked, `+` staged, `!` modified, `↑↓` ahead/behind)
-- **Model Information**: Active Claude model display name  
-- **Usage Tracking**: Token and message usage with plan limits
-- **Time Remaining**: Hours/minutes until usage reset
+- **Real-time Usage Tracking** - Live progress bars showing your 5-hour and 7-day API limits
+- **Context Monitor** - Know when your conversation will auto-compact (summarize)
+- **Smart Color Coding** - Green → Yellow → Red as you approach limits
+- **Session Stats** - Duration and lines of code added/removed
+- **Git Integration** - Branch name with change indicators
+- **Multiple Themes** - Colors, minimal, or background modes
 
-## Display Modes
+## Preview
 
-> [!TIP]
-> You can edit the colors in the script to suit your tastes!
+```
+sanz/ · Opus 4.5 · 28m · +454 -93 · ctx [████████░░] 69% · 5h(3h09m) [███████░░░] 73% · 7d(3d3h) [████░░░░░░] 37%
+```
 
-Configure the visual style with `CLAUDE_STATUS_DISPLAY_MODE`:
+| Component | Description |
+|-----------|-------------|
+| `sanz/` | Current directory |
+| `Opus 4.5` | Active Claude model |
+| `28m` | Session duration |
+| `+454 -93` | Lines added/removed |
+| `ctx [...] 69%` | Context usage (auto-compact at ~95%) |
+| `5h(3h09m) [...] 73%` | 5-hour limit usage, resets in 3h09m |
+| `7d(3d3h) [...] 37%` | 7-day limit usage, resets in 3d3h |
 
-### `colors` (default)
-Colorful, minimal display with subtle separators.
+## Installation
 
-![colors](docs/colors.png)
+### Prerequisites
 
+- Ruby installed on your system
+- Claude Code CLI
+- macOS (for Keychain OAuth token access)
 
-### `minimal` 
-Monochromatic, understated appearance.
+### Setup
 
-![colors](docs/minimal.png)
+1. **Clone this repository**
+   ```bash
+   git clone https://github.com/sanztheo/claude-code-statusline.git ~/.claude/utils/claude_monitor_statusline
+   ```
 
-### `background`
-Bold colored backgrounds for each component.
+2. **Make the script executable**
+   ```bash
+   chmod +x ~/.claude/utils/claude_monitor_statusline/statusline.rb
+   ```
 
-![bg](docs/bg.png)
+3. **Configure Claude Code**
 
-## Configuration Options
+   Add to your `~/.claude/settings.json`:
+   ```json
+   {
+     "statusLine": {
+       "type": "command",
+       "command": "CLAUDE_STATUS_DISPLAY_MODE=minimal CLAUDE_STATUS_INFO_MODE=text CLAUDE_STATUS_PLAN=max5 ~/.claude/utils/claude_monitor_statusline/statusline.rb",
+       "padding": 0
+     }
+   }
+   ```
+
+4. **Restart Claude Code** to see your new statusline!
+
+## Configuration
 
 ### Environment Variables
 
-- `CLAUDE_STATUS_DISPLAY_MODE`: `colors` (default), `minimal`, or `background`
-- `CLAUDE_STATUS_PLAN`: `pro`, `max5` (default), `max20`, or `custom`  
-- `CLAUDE_STATUS_INFO_MODE`: `none` (default), `emoji`, or `text`
+| Variable | Options | Default | Description |
+|----------|---------|---------|-------------|
+| `CLAUDE_STATUS_DISPLAY_MODE` | `colors`, `minimal`, `background` | `colors` | Visual theme |
+| `CLAUDE_STATUS_PLAN` | `pro`, `max5`, `max20` | `max5` | Your Claude plan |
+| `CLAUDE_STATUS_INFO_MODE` | `none`, `emoji`, `text` | `none` | Label style |
 
-### Plan Types
+### Plan Limits
 
 | Plan | Token Limit | Message Limit |
-|------|------------|---------------|
+|------|-------------|---------------|
 | `pro` | 19k | 250 |
 | `max5` | 88k | 1,000 |
 | `max20` | 220k | 2,000 |
 
-### Info Modes
+## Display Modes
 
-- **`none`**: Clean display with no extra indicators
-- **`emoji`**: Adds contextual emojis (📁 🔀 🦾 📓 ✏️ ⏱️)
-- **`text`**: Descriptive text labels ("tokens", "messages", "before reset")
+### Minimal (recommended)
+Clean, monochromatic design that fits any terminal theme.
 
-## Development and testing 
-You can change the colors and this script and debug it by using the following command: the script will read JSON input from stdin and outputs a formatted status line to stdout.
+![Minimal Mode](docs/minimal.png)
+
+### Colors
+Vibrant colors for each component.
+
+![Colors Mode](docs/colors.png)
+
+### Background
+Bold colored backgrounds for maximum visibility.
+
+![Background Mode](docs/bg.png)
+
+## Progress Bar Colors
+
+The progress bars automatically change color based on usage:
+
+| Usage | Color | Status |
+|-------|-------|--------|
+| 0-49% | Green | Safe |
+| 50-74% | Yellow | Moderate |
+| 75-89% | Red | High |
+| 90-100% | Bright Red | Critical |
+
+## How It Works
+
+### API Integration
+The statusline fetches real-time usage data from the Anthropic OAuth API:
+- **5-hour window** - Your rolling 5-hour usage limit
+- **7-day window** - Your weekly usage quota
+
+### Context Tracking
+Parses your conversation transcript to calculate context window usage. When you approach ~95%, Claude Code auto-compacts (summarizes) the conversation.
+
+### Git Status Indicators
+- `?` - Untracked files
+- `+` - Staged changes
+- `!` - Modified files
+- `↑n` - Commits ahead of remote
+- `↓n` - Commits behind remote
+
+## Development
+
+### Testing Locally
 
 ```bash
-echo '{"workspace": {"current_dir": "~/some_repo_of_yours"}, "model": {"display_name": "Claude 4.1 Opus"}, "session_id": "test"}' | env CLAUDE_STATUS_DISPLAY_MODE=text CLAUDE_STATUS_PLAN=pro CLAUDE_STATUS_INFO_MODE=text ruby ./statusline.rb
+echo '{
+  "workspace": {"current_dir": "/Users/you/project"},
+  "model": {"display_name": "Opus 4.5"},
+  "session_id": "test",
+  "transcript_path": "",
+  "cost": {
+    "total_duration_ms": 720000,
+    "total_lines_added": 185,
+    "total_lines_removed": 42
+  }
+}' | CLAUDE_STATUS_DISPLAY_MODE=minimal CLAUDE_STATUS_PLAN=max5 ruby ./statusline.rb
 ```
 
+### Customizing Colors
+
+Edit the `COLOR_SCHEMES` hash in `statusline.rb` to customize colors for each theme.
+
+## Troubleshooting
+
+### Statusline not showing?
+- Ensure Ruby is installed: `ruby --version`
+- Check script is executable: `chmod +x statusline.rb`
+- Verify settings.json path is correct
+
+### API usage not showing?
+- Make sure you're logged into Claude Code (OAuth token required)
+- The token is stored in macOS Keychain under "Claude Code-credentials"
+
+### Context bar always at 0%?
+- The transcript path must be valid
+- Only shows after some conversation history exists
+
+## Contributing
+
+Contributions are welcome! Feel free to:
+- Report bugs
+- Suggest features
+- Submit pull requests
+
+## License
+
+MIT License - feel free to use and modify as you like.
+
+## Credits
+
+Built with love for the Claude Code community.
+
+---
+
+**Keywords**: Claude Code, statusline, terminal, CLI, usage tracking, progress bar, API limits, context window, developer tools, productivity
