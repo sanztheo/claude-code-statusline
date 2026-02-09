@@ -114,6 +114,9 @@ class ClaudeStatusLine
     }
   }.freeze
 
+  # Path to bar-status config file (written by barstatus_ui.rb)
+  BARSTATUS_CONFIG_PATH = File.expand_path('~/.claude/utils/claude_monitor_statusline/barstatus.config.json')
+
   def initialize
     @input_data = JSON.parse($stdin.read)
     @current_dir = @input_data.dig('workspace', 'current_dir') || @input_data['cwd']
@@ -131,6 +134,21 @@ class ClaudeStatusLine
     # Auto-detect plan and set limits
     @plan = self.class.detect_plan
     @limits = self.class.get_limits(@plan)
+
+    # Load bar-status config for live toggles
+    @bar_config = load_barstatus_config
+  end
+
+  def load_barstatus_config
+    return {} unless File.exist?(BARSTATUS_CONFIG_PATH)
+    JSON.parse(File.read(BARSTATUS_CONFIG_PATH))
+  rescue StandardError
+    {}
+  end
+
+  def bar_config_show?(key, default = true)
+    val = @bar_config[key]
+    val.nil? ? default : val
   end
 
   def generate
@@ -153,21 +171,21 @@ class ClaudeStatusLine
     if @display_mode == :background
       [
         format_with_info(" #{@dir_name} ", :directory),
-        git_info_colored_with_info,
+        bar_config_show?('show_git') ? git_info_colored_with_info : nil,
         format_with_info(" #{@model_name} ", :model),
-        format_session_duration,
+        bar_config_show?('show_duration') ? format_session_duration : nil,
         format_lines_changed,
-        format_context_bar,
+        bar_config_show?('show_ctx') ? format_context_bar : nil,
         format_with_info(" #{calculate_usage[:reset_time]} ", :time)
       ].compact
     else
       [
         format_with_info("#{@dir_name}/", :directory),
-        git_info_colored_with_info,
+        bar_config_show?('show_git') ? git_info_colored_with_info : nil,
         format_with_info(@model_name, :model),
-        format_session_duration,
+        bar_config_show?('show_duration') ? format_session_duration : nil,
         format_lines_changed,
-        format_context_bar
+        bar_config_show?('show_ctx') ? format_context_bar : nil
       ].compact
     end
   end
@@ -688,33 +706,49 @@ class ClaudeStatusLine
     api_data = fetch_api_usage
     return nil unless api_data
 
-    five_hour_pct = (api_data.dig('five_hour', 'utilization') || 0).round
-    five_hour_reset = format_api_reset_time(api_data.dig('five_hour', 'resets_at'))
-    seven_day_pct = (api_data.dig('seven_day', 'utilization') || 0).round
-    seven_day_reset = format_api_reset_time(api_data.dig('seven_day', 'resets_at'))
+    parts = []
 
-    five_bar = create_progress_bar_compact(five_hour_pct)
-    five_color = color_for_percentage(five_hour_pct)
-    seven_bar = create_progress_bar_compact(seven_day_pct)
-    seven_color = color_for_percentage(seven_day_pct)
+    if bar_config_show?('show_5h')
+      five_hour_pct = (api_data.dig('five_hour', 'utilization') || 0).round
+      five_hour_reset = format_api_reset_time(api_data.dig('five_hour', 'resets_at'))
+      five_bar = create_progress_bar_compact(five_hour_pct)
+      five_color = color_for_percentage(five_hour_pct)
+      five_label = five_hour_reset ? "5h(#{five_hour_reset})" : "5h"
+      parts << "#{@colors[:gray]}#{five_label} #{five_bar} #{five_color}#{five_hour_pct}%#{@colors[:reset]}"
+    end
 
-    # Format compact : label(temps) [barre] %
-    five_label = five_hour_reset ? "5h(#{five_hour_reset})" : "5h"
-    seven_label = seven_day_reset ? "7d(#{seven_day_reset})" : "7d"
+    if bar_config_show?('show_7d')
+      seven_day_pct = (api_data.dig('seven_day', 'utilization') || 0).round
+      seven_day_reset = format_api_reset_time(api_data.dig('seven_day', 'resets_at'))
+      seven_bar = create_progress_bar_compact(seven_day_pct)
+      seven_color = color_for_percentage(seven_day_pct)
+      seven_label = seven_day_reset ? "7d(#{seven_day_reset})" : "7d"
+      parts << "#{@colors[:gray]}#{seven_label} #{seven_bar} #{seven_color}#{seven_day_pct}%#{@colors[:reset]}"
+    end
 
-    five_part = "#{@colors[:gray]}#{five_label} #{five_bar} #{five_color}#{five_hour_pct}%#{@colors[:reset]}"
-    seven_part = "#{@colors[:gray]}#{seven_label} #{seven_bar} #{seven_color}#{seven_day_pct}%#{@colors[:reset]}"
-
-    [five_part, seven_part]
+    parts.empty? ? nil : parts
   rescue StandardError
     nil
   end
 
   def create_progress_bar_compact(percentage, width = 10)
-    filled = (percentage.to_f / 100 * width).round
-    empty = width - filled
-    color = color_for_percentage(percentage)
-    "#{@colors[:gray]}[#{color}#{'█' * filled}#{@colors[:gray]}#{'░' * empty}]#{@colors[:reset]}"
+    bar_style = @bar_config['bar_style'] || 'blocks'
+
+    case bar_style
+    when 'percent_only'
+      color = color_for_percentage(percentage)
+      return "#{color}#{percentage}%#{@colors[:reset]}"
+    when 'tqdm'
+      filled = (percentage.to_f / 100 * width).round
+      empty = width - filled
+      color = color_for_percentage(percentage)
+      "#{@colors[:gray]}[#{color}#{'#' * filled}#{@colors[:gray]}#{'-' * empty}]#{@colors[:reset]}"
+    else # blocks
+      filled = (percentage.to_f / 100 * width).round
+      empty = width - filled
+      color = color_for_percentage(percentage)
+      "#{@colors[:gray]}[#{color}#{'█' * filled}#{@colors[:gray]}#{'░' * empty}]#{@colors[:reset]}"
+    end
   end
 
   def build_usage_bars
