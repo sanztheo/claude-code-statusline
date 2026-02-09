@@ -151,6 +151,10 @@ class ClaudeStatusLine
     val.nil? ? default : val
   end
 
+  def config_display_mode
+    @bar_config['display_mode'] || 'compact'
+  end
+
   def generate
     parts = build_status_parts
 
@@ -168,6 +172,26 @@ class ClaudeStatusLine
   private
 
   def build_status_parts
+    case config_display_mode
+    when 'minimal'
+      build_minimal_parts
+    when 'full'
+      build_full_parts
+    else # compact
+      build_compact_parts
+    end
+  end
+
+  def build_minimal_parts
+    # Bare essentials: directory, model, percentages only
+    model_short = @model_name&.gsub(/Claude\s*/i, '')&.strip
+    [
+      format_with_info("#{@dir_name}/", :directory),
+      format_with_info(model_short, :model)
+    ].compact
+  end
+
+  def build_compact_parts
     if @display_mode == :background
       [
         format_with_info(" #{@dir_name} ", :directory),
@@ -190,11 +214,31 @@ class ClaudeStatusLine
     end
   end
 
+  def build_full_parts
+    [
+      format_with_info("#{@dir_name}/", :directory),
+      bar_config_show?('show_git') ? git_info_colored_with_info : nil,
+      format_with_info(@model_name, :model),
+      bar_config_show?('show_duration') ? format_session_duration : nil,
+      format_lines_changed,
+      bar_config_show?('show_ctx') ? format_context_bar_full : nil
+    ].compact
+  end
+
   def format_context_bar
     context_pct = calculate_context_percentage
     return nil if context_pct <= 0
 
     bar = create_progress_bar_compact(context_pct, 8)
+    color = color_for_percentage(context_pct)
+    "#{@colors[:gray]}ctx #{bar} #{color}#{context_pct}%#{@colors[:reset]}"
+  end
+
+  def format_context_bar_full
+    context_pct = calculate_context_percentage
+    return nil if context_pct <= 0
+
+    bar = create_progress_bar_compact(context_pct, 14)
     color = color_for_percentage(context_pct)
     "#{@colors[:gray]}ctx #{bar} #{color}#{context_pct}%#{@colors[:reset]}"
   end
@@ -706,6 +750,37 @@ class ClaudeStatusLine
     api_data = fetch_api_usage
     return nil unless api_data
 
+    case config_display_mode
+    when 'minimal'
+      build_usage_minimal(api_data)
+    when 'full'
+      build_usage_full(api_data)
+    else
+      build_usage_compact(api_data)
+    end
+  rescue StandardError
+    nil
+  end
+
+  def build_usage_minimal(api_data)
+    parts = []
+
+    if bar_config_show?('show_5h')
+      pct = (api_data.dig('five_hour', 'utilization') || 0).round
+      color = color_for_percentage(pct)
+      parts << "#{@colors[:gray]}5h #{color}#{pct}%#{@colors[:reset]}"
+    end
+
+    if bar_config_show?('show_7d')
+      pct = (api_data.dig('seven_day', 'utilization') || 0).round
+      color = color_for_percentage(pct)
+      parts << "#{@colors[:gray]}7d #{color}#{pct}%#{@colors[:reset]}"
+    end
+
+    parts.empty? ? nil : parts
+  end
+
+  def build_usage_compact(api_data)
     parts = []
 
     if bar_config_show?('show_5h')
@@ -727,8 +802,41 @@ class ClaudeStatusLine
     end
 
     parts.empty? ? nil : parts
-  rescue StandardError
-    nil
+  end
+
+  def build_usage_full(api_data)
+    parts = []
+
+    if bar_config_show?('show_5h')
+      pct = (api_data.dig('five_hour', 'utilization') || 0).round
+      reset = format_api_reset_time(api_data.dig('five_hour', 'resets_at'))
+      bar = create_progress_bar_compact(pct, 14)
+      color = color_for_percentage(pct)
+      label = reset ? "5h(#{reset})" : "5h"
+      used = api_data.dig('five_hour', 'used')
+      limit = api_data.dig('five_hour', 'limit')
+      count_str = (used && limit) ? " #{format_count_value(used)}/#{format_count_value(limit)}" : ""
+      parts << "#{@colors[:gray]}#{label} #{bar} #{color}#{pct}%#{@colors[:gray]}#{count_str}#{@colors[:reset]}"
+    end
+
+    if bar_config_show?('show_7d')
+      pct = (api_data.dig('seven_day', 'utilization') || 0).round
+      reset = format_api_reset_time(api_data.dig('seven_day', 'resets_at'))
+      bar = create_progress_bar_compact(pct, 14)
+      color = color_for_percentage(pct)
+      label = reset ? "7d(#{reset})" : "7d"
+      used = api_data.dig('seven_day', 'used')
+      limit = api_data.dig('seven_day', 'limit')
+      count_str = (used && limit) ? " #{format_count_value(used)}/#{format_count_value(limit)}" : ""
+      parts << "#{@colors[:gray]}#{label} #{bar} #{color}#{pct}%#{@colors[:gray]}#{count_str}#{@colors[:reset]}"
+    end
+
+    parts.empty? ? nil : parts
+  end
+
+  def format_count_value(val)
+    return val.to_s unless val.is_a?(Numeric)
+    val >= 1000 ? "#{(val / 1000.0).round(1)}k" : val.to_s
   end
 
   def create_progress_bar_compact(percentage, width = 10)
