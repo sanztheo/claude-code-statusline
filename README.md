@@ -25,6 +25,7 @@ Then restart Claude Code!
 - **Session Stats** - Duration and lines of code added/removed
 - **Git Integration** - Branch name with change indicators
 - **Multiple Themes** - Colors, minimal, or background modes
+- **Interactive Config (`bar-status`)** - TUI menu to configure the statusline from your terminal
 
 ## Preview
 
@@ -75,9 +76,47 @@ sanz/ · Opus 4.5 · 28m · +454 -93 · ctx [████████░░] 69%
    }
    ```
 
-4. **Restart Claude Code** to see your new statusline!
+4. **Install the `bar-status` CLI** (optional)
+   ```bash
+   cp ~/.claude/utils/claude_monitor_statusline/barstatus_ui.rb ~/.claude/utils/claude_monitor_statusline/
+   cat > ~/.local/bin/bar-status << 'EOF'
+   #!/usr/bin/env bash
+   exec ruby "$HOME/.claude/utils/claude_monitor_statusline/barstatus_ui.rb" "$@"
+   EOF
+   chmod +x ~/.local/bin/bar-status
+   ```
+
+5. **Restart Claude Code** to see your new statusline!
 
 ## Configuration
+
+### Interactive Menu (`bar-status`)
+
+The easiest way to configure the statusline is the built-in TUI menu. After installation, run:
+
+```bash
+bar-status
+```
+
+This opens an interactive menu directly in your terminal:
+
+```
+/barstatus - Menu interactif
+------------------------------------------------------
+Navigation: ↑/↓ selection | ←/→ modifier | Enter sauvegarder | q quitter
+
+  Mode affichage       : compact
+  Style barre          : blocks
+  Afficher 5h          : true
+  Afficher 7d          : true
+  Afficher ctx         : true
+  Afficher git         : true
+  Afficher duree       : true
+```
+
+Use arrow keys (or vim keys `hjkl`) to navigate and change values. Press Enter to save.
+
+Config file: `~/.claude/utils/claude_monitor_statusline/barstatus.config.json`
 
 ### Environment Variables
 

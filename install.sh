@@ -39,7 +39,32 @@ fi
 
 # Make executable
 chmod +x "$INSTALL_DIR/statusline.rb"
-echo "✓ Script installed"
+chmod +x "$INSTALL_DIR/barstatus_ui.rb"
+echo "✓ Scripts installed"
+
+# Install bar-status CLI command
+echo ""
+echo "→ Installing bar-status command..."
+BIN_DIR=""
+for dir in "$HOME/.local/bin" "$HOME/bin" "/usr/local/bin"; do
+    if [ -d "$dir" ] && echo "$PATH" | grep -q "$dir"; then
+        BIN_DIR="$dir"
+        break
+    fi
+done
+
+if [ -z "$BIN_DIR" ]; then
+    BIN_DIR="$HOME/.local/bin"
+    mkdir -p "$BIN_DIR"
+    echo "  Created $BIN_DIR (add it to your PATH if needed)"
+fi
+
+cat > "$BIN_DIR/bar-status" << 'WRAPPER'
+#!/usr/bin/env bash
+exec ruby "$HOME/.claude/utils/claude_monitor_statusline/barstatus_ui.rb" "$@"
+WRAPPER
+chmod +x "$BIN_DIR/bar-status"
+echo "✓ bar-status command installed to $BIN_DIR/bar-status"
 
 # Configure settings.json
 echo ""
@@ -85,7 +110,8 @@ echo "━━━━━━━━━━━━━━━━━━━━━━━━�
 echo ""
 echo "  Restart Claude Code to see your new statusline."
 echo ""
-echo "  Configuration options:"
+echo "  Configuration:"
+echo "    bar-status                  Open interactive config menu"
 echo "    CLAUDE_STATUS_PLAN=max5|max20|pro"
 echo "    CLAUDE_STATUS_DISPLAY_MODE=minimal|colors|background"
 echo ""
